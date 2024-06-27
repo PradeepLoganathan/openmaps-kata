@@ -1,14 +1,18 @@
 import requests
-import csv
+import psycopg2  # Import the PostgreSQL adapter
 
-# Overpass API URL for querying OpenStreetMap data
+# Overpass API URL
 overpass_url = "http://overpass-api.de/api/interpreter"
 
-# Query to fetch POIs (adjust as needed)
+# Query to fetch Australian POIs (adjust categories as needed)
 overpass_query = """
-[out:json];
-area["ISO3166-1"="US"][admin_level=2];
-node["tourism"~"hotel|museum|attraction"](area);
+[out:json][timeout:25];
+area["ISO3166-1"="AU"][admin_level=2];  // Filter by Australia
+(
+  node["amenity"~"school|hospital|restaurant|cafe|bar"](area);
+  way["amenity"~"school|hospital|restaurant|cafe|bar"](area);
+  relation["amenity"~"school|hospital|restaurant|cafe|bar"](area);
+);
 out center;
 """
 
@@ -16,26 +20,25 @@ out center;
 response = requests.get(overpass_url, params={'data': overpass_query})
 data = response.json()
 
-# Extract relevant information
+# Extract relevant information and prepare for Greenplum
 pois = []
 for element in data['elements']:
     if element['type'] == 'node':
         poi = {
-            'name': element.get('tags', {}).get('name', 'Unknown'),
+            'name': element.get('tags', {}).get('name', ''),
+            'type': element.get('tags', {}).get('amenity', ''),
             'latitude': element['lat'],
             'longitude': element['lon']
         }
         pois.append(poi)
 
-# Write data to CSV
-with open('pois.csv', 'w', newline='', encoding='utf-8') as csvfile:
-    fieldnames = ['name', 'latitude', 'longitude']
-    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+# Greenplum connection parameters (replace with your actual credentials)
+conn_string = "dbname=your_database user=your_user password=your_password host=your_host"
 
-    writer.writeheader()
-    row_count = 0
-    for poi in pois:
-        if row_count >= 2000:  # Stop after 2000 rows
-            break
-        writer.writerow(poi)
-        row_count += 1
+# Insert data into Greenplum (assuming you have a table named 'pois_australia')
+with psycopg2.connect(conn_string) as conn:
+    with conn.cursor() as cur:
+        for poi in pois:
+            cur.execute("INSERT INTO pois_australia (name, type, geom) VALUES (%s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326))", 
+                        (poi['name'], poi['type'], poi['longitude'], poi['latitude']))  # Note: longitude comes before latitude in PostGIS
+    conn.commit()
