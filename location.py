@@ -33,5 +33,9 @@ with open('pois.csv', 'w', newline='', encoding='utf-8') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
     writer.writeheader()
+    row_count = 0
     for poi in pois:
+        if row_count >= 2000:  # Stop after 2000 rows
+            break
         writer.writerow(poi)
+        row_count += 1
